@@ -288,14 +288,176 @@ class Renderer {
 }
 
 /**
+ * 3D VIEW RENDERER (WIREFRAME)
+ */
+class View3D {
+    constructor(canvas) {
+        this.canvas = canvas;
+        this.ctx = canvas.getContext('2d');
+        this.yaw = 0.5;
+        this.pitch = 0.5;
+        this.zoom = 40;
+        
+        this.camX = 0;
+        this.camZ = 0;
+        this.moveSpeed = 0.2;
+        
+        this.isRotating = false;
+        this.lastMouse = { x: 0, y: 0 };
+        
+        this.setupInputs();
+    }
+
+    setupInputs() {
+        this.canvas.addEventListener('mousedown', e => {
+            this.isRotating = true;
+            this.lastMouse = { x: e.clientX, y: e.clientY };
+        });
+        window.addEventListener('mousemove', e => {
+            if (!this.isRotating) return;
+            const dx = e.clientX - this.lastMouse.x;
+            const dy = e.clientY - this.lastMouse.y;
+            this.yaw += dx * 0.01;
+            this.pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.pitch + dy * 0.01));
+            this.lastMouse = { x: e.clientX, y: e.clientY };
+        });
+        window.addEventListener('mouseup', () => this.isRotating = false);
+    }
+
+    setPreset(n) {
+        switch(n) {
+            case '1': // Top
+                this.yaw = 0; this.pitch = -Math.PI/2; break;
+            case '2': // Front
+                this.yaw = 0; this.pitch = 0; break;
+            case '3': // Side
+                this.yaw = Math.PI/2; this.pitch = 0; break;
+            case '4': // Isometric
+                this.yaw = 0.78; this.pitch = 0.5; break;
+        }
+    }
+
+    update(keys) {
+        if (keys['KeyW']) {
+            this.camX += Math.sin(this.yaw) * this.moveSpeed;
+            this.camZ -= Math.cos(this.yaw) * this.moveSpeed;
+        }
+        if (keys['KeyS']) {
+            this.camX -= Math.sin(this.yaw) * this.moveSpeed;
+            this.camZ += Math.cos(this.yaw) * this.moveSpeed;
+        }
+        if (keys['KeyA']) {
+            this.camX -= Math.cos(this.yaw) * this.moveSpeed;
+            this.camZ -= Math.sin(this.yaw) * this.moveSpeed;
+        }
+        if (keys['KeyD']) {
+            this.camX += Math.cos(this.yaw) * this.moveSpeed;
+            this.camZ += Math.sin(this.yaw) * this.moveSpeed;
+        }
+    }
+
+    project(x, y, z) {
+        const tx = x - this.camX;
+        const tz = z - this.camZ;
+
+        // Simple 3D to 2D projection
+        // Rotate around Y (yaw)
+        let x1 = tx * Math.cos(this.yaw) - tz * Math.sin(this.yaw);
+        let z1 = tx * Math.sin(this.yaw) + tz * Math.cos(this.yaw);
+        
+        // Rotate around X (pitch)
+        let y2 = y * Math.cos(this.pitch) - z1 * Math.sin(this.pitch);
+        let z2 = y * Math.sin(this.pitch) + z1 * Math.cos(this.pitch);
+        
+        // Perspective (or just scale for orthographic-ish preview)
+        const factor = 200 / (z2 + 400); 
+        return {
+            x: x1 * this.zoom * factor + this.canvas.width / 2,
+            y: -y2 * this.zoom * factor + this.canvas.height / 2
+        };
+    }
+
+    draw(objectManager) {
+        const ctx = this.ctx;
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        
+        // Draw Grid
+        for(let i = -10; i <= 10; i++) {
+            this.drawLine(i, 0, -10, i, 0, 10, '#222');
+            this.drawLine(-10, 0, i, 10, 0, i, '#222');
+        }
+
+        const data = objectManager.data;
+        data.walls.forEach(w => {
+            const color = w._color;
+            // Draw wall box
+            // Bottom rectangle (Floor)
+            this.drawRect3D(w.x1, w.x2, w.z1, w.z2, w.y1, color);
+            // Top rectangle (Ceiling)
+            this.drawRect3D(w.x1, w.x2, w.z1, w.z2, w.y2, color);
+            // Vertical edges
+            this.drawLine(w.x1, w.y1, w.z1, w.x1, w.y2, w.z1, color);
+            this.drawLine(w.x2, w.y1, w.z1, w.x2, w.y2, w.z1, color);
+            this.drawLine(w.x1, w.y1, w.z2, w.x1, w.y2, w.z2, color);
+            this.drawLine(w.x2, w.y1, w.z2, w.x2, w.y2, w.z2, color);
+        });
+
+        // Entities as simple boxes or points
+        data.enemies.forEach(e => this.drawEntity(e.x, e.z, '#f00', 0.8));
+        data.magazines.forEach(m => this.drawEntity(m.x, m.z, '#ff0', 0.4));
+        data.medkits.forEach(k => this.drawEntity(k.x, k.z, '#0f0', 0.4));
+    }
+
+    drawRect3D(x1, x2, z1, z2, y, color) {
+        const p1 = this.project(x1, y, z1);
+        const p2 = this.project(x2, y, z1);
+        const p3 = this.project(x2, y, z2);
+        const p4 = this.project(x1, y, z2);
+        
+        this.ctx.strokeStyle = color;
+        this.ctx.beginPath();
+        this.ctx.moveTo(p1.x, p1.y);
+        this.ctx.lineTo(p2.x, p2.y);
+        this.ctx.lineTo(p3.x, p3.y);
+        this.ctx.lineTo(p4.x, p4.y);
+        this.ctx.closePath();
+        this.ctx.stroke();
+    }
+
+    drawLine(x1, y1, z1, x2, y2, z2, color) {
+        const p1 = this.project(x1, y1, z1);
+        const p2 = this.project(x2, y2, z2);
+        this.ctx.strokeStyle = color;
+        this.ctx.beginPath();
+        this.ctx.moveTo(p1.x, p1.y);
+        this.ctx.lineTo(p2.x, p2.y);
+        this.ctx.stroke();
+    }
+
+    drawEntity(x, z, color, size) {
+        const y = 0;
+        this.drawLine(x - size/2, y, z, x + size/2, y, z, color);
+        this.drawLine(x, y, z - size/2, x, y, z + size/2, color);
+        this.drawLine(x, y, z, x, y + size, z, color);
+    }
+}
+
+
+/**
  * EDITOR ENGINE
  */
 class Editor {
     constructor() {
         this.canvas = document.getElementById('main-canvas');
+        this.view3DCanvas = document.getElementById('view-3d-canvas');
         this.camera = new Camera();
         this.objects = new ObjectManager();
         this.renderer = new Renderer(this.canvas, this.camera);
+        this.view3D = new View3D(this.view3DCanvas);
         
         this.state = {
             mode: 'wall',
@@ -329,6 +491,8 @@ class Editor {
     resize() {
         this.canvas.width = window.innerWidth - 320;
         this.canvas.height = window.innerHeight;
+        this.view3DCanvas.width = 320;
+        this.view3DCanvas.height = 240;
     }
 
     setupInputs() {
@@ -423,6 +587,11 @@ class Editor {
         if (e.ctrlKey && e.code === 'KeyZ') this.undo();
         if (e.ctrlKey && e.code === 'KeyY') this.redo();
         if (e.code === 'Delete' || e.code === 'Backspace') this.deleteSelected();
+
+        // Viewport Presets
+        if (['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(e.code)) {
+            this.view3D.setPreset(e.code.replace('Digit', ''));
+        }
     }
 
     onKeyUp(e) {
@@ -508,7 +677,9 @@ class Editor {
         if (this.state.keys['ArrowDown']) this.camera.velZ += this.camera.speed;
         
         this.camera.update();
+        this.view3D.update(this.state.keys);
         this.renderer.draw(this.objects, this.state);
+        this.view3D.draw(this.objects);
         requestAnimationFrame(() => this.loop());
     }
 }
