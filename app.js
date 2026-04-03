@@ -1,0 +1,656 @@
+/**
+ * MAPBUILDER PRO - CORE APPLICATION
+ * Coordinate System:
+ * Plane: X (horizontal), Z (vertical)
+ * Height: Y
+ */
+
+const Precision = {
+    round: (val, step = 0.1) => {
+        const inv = 1 / step;
+        return Math.round(val * inv) / inv;
+    }
+};
+
+const ColorUtils = {
+    random: () => {
+        const letters = '0123456789ABCDEF';
+        let color = '#';
+        for (let i = 0; i < 6; i++) {
+            color += letters[Math.floor(Math.random() * 16)];
+        }
+        return color;
+    }
+};
+
+/**
+ * CAMERA CLASS
+ */
+class Camera {
+    constructor() {
+        this.x = 0;
+        this.z = 0; // Camera Z is the top-down vertical
+        this.zoom = 20;
+        this.minZoom = 2;
+        this.maxZoom = 500;
+        
+        this.velX = 0;
+        this.velZ = 0;
+        this.friction = 0.85; // Slightly higher friction for tighter stop
+        this.speed = 0.05; // Significant reduction in speed
+    }
+
+    update() {
+        if (Math.abs(this.velX) > 0.001) this.x += this.velX;
+        if (Math.abs(this.velZ) > 0.001) this.z += this.velZ;
+        
+        this.velX *= this.friction;
+        this.velZ *= this.friction;
+    }
+
+    screenToWorld(sx, sy, canvasWidth, canvasHeight) {
+        return {
+            x: (sx - canvasWidth / 2) / this.zoom + this.x,
+            z: (sy - canvasHeight / 2) / this.zoom + this.z
+        };
+    }
+
+    worldToScreen(wx, wz, canvasWidth, canvasHeight) {
+        return {
+            x: (wx - this.x) * this.zoom + canvasWidth / 2,
+            y: (wz - this.z) * this.zoom + canvasHeight / 2
+        };
+    }
+
+    pan(dx, dz) {
+        this.x -= dx / this.zoom;
+        this.z -= dz / this.zoom;
+    }
+
+    zoomAt(delta, sx, sy, canvasWidth, canvasHeight) {
+        const before = this.screenToWorld(sx, sy, canvasWidth, canvasHeight);
+        // Smoother zoom: 0.96 and 1.04 instead of 0.9 and 1.1
+        this.zoom = Math.min(Math.max(this.zoom * (delta > 0 ? 0.96 : 1.04), this.minZoom), this.maxZoom);
+        const after = this.screenToWorld(sx, sy, canvasWidth, canvasHeight);
+        this.x += before.x - after.x;
+        this.z += before.z - after.z;
+    }
+}
+
+/**
+ * OBJECT MANAGER
+ */
+class ObjectManager {
+    constructor() {
+        this.data = {
+            walls: [],
+            enemies: [],
+            magazines: [],
+            medkits: []
+        };
+    }
+
+    clear() {
+        this.data = { walls: [], enemies: [], magazines: [], medkits: [] };
+    }
+
+    add(type, props) {
+        const obj = { 
+            _type: type, 
+            _color: ColorUtils.random(), 
+            ...props 
+        };
+        this.data[type + 's'].push(obj);
+        return obj;
+    }
+
+    remove(obj) {
+        const collection = this.data[obj._type + 's'];
+        const idx = collection.indexOf(obj);
+        if (idx !== -1) collection.splice(idx, 1);
+    }
+
+    getAt(wx, wz, zoom) {
+        const threshold = 12 / zoom; 
+
+        const types = ['medkits', 'magazines', 'enemies', 'walls'];
+        for (const type of types) {
+            const list = this.data[type];
+            for (let i = list.length - 1; i >= 0; i--) {
+                const o = list[i];
+                if (type === 'walls') {
+                    // Normalize for hit detection
+                    const minX = Math.min(o.x1, o.x2);
+                    const maxX = Math.max(o.x1, o.x2);
+                    const minZ = Math.min(o.z1, o.z2);
+                    const maxZ = Math.max(o.z1, o.z2);
+                    if (wx >= minX && wx <= maxX && wz >= minZ && wz <= maxZ) return o;
+                } else {
+                    const dist = Math.hypot(wx - o.x, wz - o.z);
+                    if (dist < threshold) return o;
+                }
+            }
+        }
+        return null;
+    }
+
+    serialize() {
+        return JSON.parse(JSON.stringify(this.data));
+    }
+
+    deserialize(json) {
+        this.clear();
+        for (const key in json) {
+            if (this.data[key]) {
+                const type = key.slice(0, -1);
+                // Ensure mapping from loaded keys to our internal keys if they differ
+                // Prompt specified WALL has x1, y1, z1, x2, y2, z2. 
+                // We map Plane(X,Z) and Height(Y).
+                this.data[key] = json[key].map(o => ({ ...o, _type: type }));
+            }
+        }
+    }
+}
+
+/**
+ * RENDERER
+ */
+class Renderer {
+    constructor(canvas, camera) {
+        this.canvas = canvas;
+        this.ctx = canvas.getContext('2d');
+        this.camera = camera;
+    }
+
+    draw(objectManager, state) {
+        const ctx = this.ctx;
+        ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        this.drawGrid(state.gridSize);
+
+        const data = objectManager.data;
+
+        // Draw Walls
+        data.walls.forEach(w => this.drawWall(w, w === state.selected));
+
+        // Draw point objects
+        data.enemies.forEach(e => this.drawEnemy(e, e === state.selected));
+        data.magazines.forEach(m => this.drawMagazine(m, m === state.selected));
+        data.medkits.forEach(k => this.drawMedkit(k, k === state.selected));
+
+        // Draw Previews
+        this.drawPreview(state);
+    }
+
+    drawGrid(gridSize) {
+        const ctx = this.ctx;
+        const cam = this.camera;
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+
+        const tl = cam.screenToWorld(0, 0, w, h);
+        const br = cam.screenToWorld(w, h, w, h);
+
+        const startX = Math.floor(tl.x / gridSize) * gridSize;
+        const endX = Math.ceil(br.x / gridSize) * gridSize;
+        const startZ = Math.floor(tl.z / gridSize) * gridSize;
+        const endZ = Math.ceil(br.z / gridSize) * gridSize;
+
+        ctx.lineWidth = 1;
+        for (let x = startX; x <= endX; x += gridSize) {
+            const s = cam.worldToScreen(x, 0, w, h);
+            ctx.strokeStyle = Math.abs(x) < 0.01 ? '#666' : '#2a2a2a';
+            ctx.beginPath(); ctx.moveTo(s.x, 0); ctx.lineTo(s.x, h); ctx.stroke();
+        }
+        for (let z = startZ; z <= endZ; z += gridSize) {
+            const s = cam.worldToScreen(0, z, w, h);
+            ctx.strokeStyle = Math.abs(z) < 0.01 ? '#666' : '#2a2a2a';
+            ctx.beginPath(); ctx.moveTo(0, s.y); ctx.lineTo(w, s.y); ctx.stroke();
+        }
+    }
+
+    drawWall(w, isSelected) {
+        const s1 = this.camera.worldToScreen(w.x1, w.z1, this.canvas.width, this.canvas.height);
+        const s2 = this.camera.worldToScreen(w.x2, w.z2, this.canvas.width, this.canvas.height);
+        
+        this.ctx.fillStyle = w._color + '44';
+        this.ctx.strokeStyle = isSelected ? '#fff' : w._color;
+        this.ctx.lineWidth = isSelected ? 3 : 2;
+        
+        const rw = s2.x - s1.x;
+        const rh = s2.y - s1.y;
+        
+        this.ctx.fillRect(s1.x, s1.y, rw, rh);
+        this.ctx.strokeRect(s1.x, s1.y, rw, rh);
+
+        if (isSelected) this.drawHandles(s1, s2);
+    }
+
+    drawEnemy(e, isSelected) {
+        const s = this.camera.worldToScreen(e.x, e.z, this.canvas.width, this.canvas.height);
+        const radius = 8;
+        this.ctx.beginPath();
+        this.ctx.arc(s.x, s.y, radius, 0, Math.PI * 2);
+        this.ctx.fillStyle = e._color;
+        this.ctx.fill();
+        this.ctx.strokeStyle = isSelected ? '#fff' : '#000';
+        this.ctx.lineWidth = 2;
+        this.ctx.stroke();
+    }
+
+    drawMagazine(m, isSelected) {
+        const s = this.camera.worldToScreen(m.x, m.z, this.canvas.width, this.canvas.height);
+        const size = 10;
+        this.ctx.save();
+        this.ctx.translate(s.x, s.y);
+        this.ctx.rotate(Math.PI / 4);
+        this.ctx.fillStyle = m._color;
+        this.ctx.fillRect(-size/2, -size/2, size, size);
+        this.ctx.strokeStyle = isSelected ? '#fff' : '#000';
+        this.ctx.strokeRect(-size/2, -size/2, size, size);
+        this.ctx.restore();
+    }
+
+    drawMedkit(k, isSelected) {
+        const s = this.camera.worldToScreen(k.x, k.z, this.canvas.width, this.canvas.height);
+        const size = 12;
+        this.ctx.beginPath();
+        this.ctx.moveTo(s.x, s.y - size/2);
+        this.ctx.lineTo(s.x + size/2, s.y + size/2);
+        this.ctx.lineTo(s.x - size/2, s.y + size/2);
+        this.ctx.closePath();
+        this.ctx.fillStyle = k._color;
+        this.ctx.fill();
+        this.ctx.strokeStyle = isSelected ? '#fff' : '#000';
+        this.ctx.stroke();
+    }
+
+    drawHandles(s1, s2) {
+        const size = 6;
+        this.ctx.fillStyle = "#fff";
+        const points = [
+            [s1.x, s1.y], [s2.x, s1.y], [s1.x, s2.y], [s2.x, s2.y]
+        ];
+        points.forEach(p => this.ctx.fillRect(p[0]-size/2, p[1]-size/2, size, size));
+    }
+
+    drawPreview(state) {
+        if (!state.isDrawing || !state.drawStart) return;
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        const worldPos = this.camera.screenToWorld(state.mousePos.x, state.mousePos.y, w, h);
+        const snapped = { x: Precision.round(worldPos.x, state.gridSize), z: Precision.round(worldPos.z, state.gridSize) };
+        
+        if (state.mode === 'wall') {
+            this.drawWall({ x1: state.drawStart.x, z1: state.drawStart.z, x2: snapped.x, z2: snapped.z, _color: '#00ff00' }, false);
+        }
+    }
+}
+
+/**
+ * EDITOR ENGINE
+ */
+class Editor {
+    constructor() {
+        this.canvas = document.getElementById('main-canvas');
+        this.camera = new Camera();
+        this.objects = new ObjectManager();
+        this.renderer = new Renderer(this.canvas, this.camera);
+        
+        this.state = {
+            mode: 'wall',
+            gridSize: 1.0,
+            defaultY1: 0,
+            defaultY2: 1.0,
+            selected: null,
+            isDrawing: false,
+            isPanning: false,
+            isDragging: false,
+            drawStart: null,
+            mousePos: { x: 0, y: 0 },
+            lastMouse: { x: 0, y: 0 },
+            keys: {}
+        };
+
+        this.history = [];
+        this.historyPointer = -1;
+
+        this.init();
+    }
+
+    init() {
+        this.ui = new UIManager(this);
+        this.setupInputs();
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+        this.loop();
+    }
+
+    resize() {
+        this.canvas.width = window.innerWidth - 320;
+        this.canvas.height = window.innerHeight;
+    }
+
+    setupInputs() {
+        this.canvas.addEventListener('mousedown', e => this.onMouseDown(e));
+        window.addEventListener('mousemove', e => this.onMouseMove(e));
+        window.addEventListener('mouseup', e => this.onMouseUp(e));
+        this.canvas.addEventListener('wheel', e => this.onWheel(e));
+        window.addEventListener('keydown', e => this.onKeyDown(e));
+        window.addEventListener('keyup', e => this.onKeyUp(e));
+    }
+
+    onMouseDown(e) {
+        const world = this.camera.screenToWorld(e.clientX, e.clientY, this.canvas.width, this.canvas.height);
+        const snapped = { x: Precision.round(world.x, this.state.gridSize), z: Precision.round(world.z, this.state.gridSize) };
+
+        if (e.button === 1 || (e.button === 0 && e.altKey)) {
+            this.state.isPanning = true;
+        } else if (e.button === 0) {
+            const hit = this.objects.getAt(world.x, world.z, this.camera.zoom);
+            if (hit) {
+                this.state.selected = hit;
+                this.state.isDragging = true;
+                this.ui.updateProperties();
+            } else {
+                this.state.selected = null;
+                if (this.state.mode === 'wall') {
+                    this.state.isDrawing = true;
+                    this.state.drawStart = snapped;
+                } else {
+                    this.placeObject(this.state.mode, snapped);
+                }
+                this.ui.updateProperties();
+            }
+        }
+        this.state.lastMouse = { x: e.clientX, y: e.clientY };
+    }
+
+    onMouseMove(e) {
+        this.state.mousePos = { x: e.clientX, y: e.clientY };
+        
+        if (this.state.isPanning) {
+            this.camera.pan(e.clientX - this.state.lastMouse.x, e.clientY - this.state.lastMouse.y);
+        } else if (this.state.isDragging && this.state.selected) {
+            const dx = (e.clientX - this.state.lastMouse.x) / this.camera.zoom;
+            const dz = (e.clientY - this.state.lastMouse.y) / this.camera.zoom;
+            this.moveObject(this.state.selected, dx, dz);
+        }
+
+        this.state.lastMouse = { x: e.clientX, y: e.clientY };
+        this.updateStats();
+    }
+
+    onMouseUp() {
+        if (this.state.isDrawing && this.state.drawStart) {
+            const world = this.camera.screenToWorld(this.state.mousePos.x, this.state.mousePos.y, this.canvas.width, this.canvas.height);
+            const end = { x: Precision.round(world.x, this.state.gridSize), z: Precision.round(world.z, this.state.gridSize) };
+            
+            if (Math.abs(end.x - this.state.drawStart.x) > 0.01 && Math.abs(end.z - this.state.drawStart.z) > 0.01) {
+                const wall = this.objects.add('wall', {
+                    x1: Math.min(this.state.drawStart.x, end.x),
+                    z1: Math.min(this.state.drawStart.z, end.z),
+                    x2: Math.max(this.state.drawStart.x, end.x),
+                    z2: Math.max(this.state.drawStart.z, end.z),
+                    y1: this.state.defaultY1, 
+                    y2: this.state.defaultY2, 
+                    xr: 1, yr: 1, _tx: 'default', _c: 'wall'
+                });
+                this.state.selected = wall;
+                this.saveHistory();
+                this.ui.updateProperties();
+            }
+        }
+
+        if (this.state.isDragging) this.saveHistory();
+
+        this.state.isPanning = false;
+        this.state.isDrawing = false;
+        this.state.isDragging = false;
+        this.state.drawStart = null;
+    }
+
+    onWheel(e) {
+        e.preventDefault();
+        this.camera.zoomAt(e.deltaY, e.clientX, e.clientY, this.canvas.width, this.canvas.height);
+        this.updateStats();
+    }
+
+    onKeyDown(e) {
+        this.state.keys[e.code] = true;
+        if (document.activeElement.tagName === 'INPUT') return;
+
+        if (e.ctrlKey && e.code === 'KeyZ') this.undo();
+        if (e.ctrlKey && e.code === 'KeyY') this.redo();
+        if (e.code === 'Delete' || e.code === 'Backspace') this.deleteSelected();
+    }
+
+    onKeyUp(e) {
+        this.state.keys[e.code] = false;
+    }
+
+    placeObject(mode, pos) {
+        let props = { x: pos.x, z: pos.z };
+        if (mode === 'enemy') props = { ...props, id: 'guard_1' };
+        if (mode === 'magazine') props = { ...props, ammo: 30 };
+        if (mode === 'medkit') props = { ...props, health: 50 };
+        
+        const obj = this.objects.add(mode, props);
+        this.state.selected = obj;
+        this.saveHistory();
+        this.ui.updateProperties();
+    }
+
+    moveObject(obj, dx, dz) {
+        if (obj._type === 'wall') {
+            obj.x1 = Precision.round(obj.x1 + dx, 0.1);
+            obj.x2 = Precision.round(obj.x2 + dx, 0.1);
+            obj.z1 = Precision.round(obj.z1 + dz, 0.1);
+            obj.z2 = Precision.round(obj.z2 + dz, 0.1);
+        } else {
+            obj.x = Precision.round(obj.x + dx, 0.1);
+            obj.z = Precision.round(obj.z + dz, 0.1);
+        }
+        this.ui.updateProperties();
+    }
+
+    deleteSelected() {
+        if (!this.state.selected) return;
+        this.objects.remove(this.state.selected);
+        this.state.selected = null;
+        this.saveHistory();
+        this.ui.updateProperties();
+    }
+
+    saveHistory() {
+        const snapshot = JSON.stringify(this.objects.data);
+        if (this.historyPointer < this.history.length - 1) {
+            this.history = this.history.slice(0, this.historyPointer + 1);
+        }
+        this.history.push(snapshot);
+        this.historyPointer++;
+        if (this.history.length > 50) {
+            this.history.shift();
+            this.historyPointer--;
+        }
+    }
+
+    undo() {
+        if (this.historyPointer > 0) {
+            this.historyPointer--;
+            this.objects.deserialize(JSON.parse(this.history[this.historyPointer]));
+            this.state.selected = null;
+            this.ui.updateProperties();
+        }
+    }
+
+    redo() {
+        if (this.historyPointer < this.history.length - 1) {
+            this.historyPointer++;
+            this.objects.deserialize(JSON.parse(this.history[this.historyPointer]));
+            this.state.selected = null;
+            this.ui.updateProperties();
+        }
+    }
+
+    updateStats() {
+        const w = this.camera.screenToWorld(this.state.mousePos.x, this.state.mousePos.y, this.canvas.width, this.canvas.height);
+        document.getElementById('stat-mode').innerText = this.state.mode.charAt(0).toUpperCase() + this.state.mode.slice(1);
+        document.getElementById('stat-coords').innerText = `${w.x.toFixed(2)}, ${w.z.toFixed(2)}`;
+        document.getElementById('stat-zoom').innerText = `${Math.round(this.camera.zoom * 5)}%`;
+        document.getElementById('stat-grid').innerText = this.state.gridSize;
+    }
+
+    loop() {
+        if (this.state.keys['ArrowLeft']) this.camera.velX -= this.camera.speed;
+        if (this.state.keys['ArrowRight']) this.camera.velX += this.camera.speed;
+        if (this.state.keys['ArrowUp']) this.camera.velZ -= this.camera.speed;
+        if (this.state.keys['ArrowDown']) this.camera.velZ += this.camera.speed;
+        
+        this.camera.update();
+        this.renderer.draw(this.objects, this.state);
+        requestAnimationFrame(() => this.loop());
+    }
+}
+
+/**
+ * UI MANAGER
+ */
+class UIManager {
+    constructor(editor) {
+        this.editor = editor;
+        this.init();
+    }
+
+    init() {
+        const e = this.editor;
+        
+        document.getElementById('mode-selector').addEventListener('click', (ev) => {
+            if (ev.target.dataset.mode) {
+                document.querySelectorAll('#mode-selector button').forEach(b => b.classList.remove('active'));
+                ev.target.classList.add('active');
+                e.state.mode = ev.target.dataset.mode;
+                e.updateStats();
+            }
+        });
+
+        document.getElementById('grid-snap').addEventListener('input', ev => {
+            e.state.gridSize = parseFloat(ev.target.value) || 0.1;
+        });
+
+        document.getElementById('default-z1').addEventListener('input', ev => {
+            e.state.defaultY1 = parseFloat(ev.target.value) || 0;
+        });
+
+        document.getElementById('default-z2').addEventListener('input', ev => {
+            e.state.defaultY2 = parseFloat(ev.target.value) || 0;
+        });
+
+        document.getElementById('btn-undo').onclick = () => e.undo();
+        document.getElementById('btn-redo').onclick = () => e.redo();
+        document.getElementById('btn-delete').onclick = () => e.deleteSelected();
+
+        document.getElementById('btn-export').onclick = () => {
+            const data = JSON.stringify(e.objects.serialize(), null, 2);
+            const blob = new Blob([data], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'map.json'; a.click();
+        };
+
+        document.getElementById('btn-import').onclick = () => document.getElementById('import-file').click();
+        document.getElementById('import-file').onchange = (ev) => {
+            const reader = new FileReader();
+            reader.onload = (re) => {
+                try {
+                    const data = JSON.parse(re.target.result);
+                    e.objects.deserialize(data);
+                    e.saveHistory();
+                    this.updateProperties();
+                } catch(err) { alert('Invalid Map File'); }
+            };
+            reader.readAsText(ev.target.files[0]);
+        };
+
+        this.bindProperties();
+    }
+
+    bindProperties() {
+        const e = this.editor;
+        const inputs = [
+            'color', 'c', 'tx', 'x1', 'z1', 'x2', 'z2', 'y1', 'y2', 'xr', 'yr',
+            'id', 'enemy-x', 'enemy-z',
+            'ammo', 'mag-x', 'mag-z',
+            'health', 'med-x', 'med-z'
+        ];
+
+        inputs.forEach(id => {
+            const el = document.getElementById('prop-' + id);
+            el.addEventListener('change', () => {
+                const s = e.state.selected;
+                if (!s) return;
+                
+                let val = el.type === 'number' ? parseFloat(el.value) : el.value;
+                
+                if (id === 'color') s._color = val;
+                else if (id === 'c') s._c = val;
+                else if (id === 'tx') s._tx = val;
+                else if (id.includes('-x')) s.x = val;
+                else if (id.includes('-z')) s.z = val;
+                else if (id === 'id') s.id = val;
+                else if (id === 'ammo') s.ammo = val;
+                else if (id === 'health') s.health = val;
+                else s[id] = val;
+
+                e.saveHistory();
+            });
+        });
+    }
+
+    updateProperties() {
+        const s = this.editor.state.selected;
+        const panel = document.getElementById('object-properties');
+        const empty = document.getElementById('no-selection');
+
+        if (!s) {
+            panel.style.display = 'none';
+            empty.style.display = 'block';
+            return;
+        }
+
+        panel.style.display = 'block';
+        empty.style.display = 'none';
+        document.getElementById('prop-title').innerText = s._type.toUpperCase() + ' PROPERTIES';
+        
+        document.querySelectorAll('.type-props').forEach(p => p.style.display = 'none');
+        document.getElementById('props-' + s._type).style.display = 'block';
+
+        document.getElementById('prop-color').value = s._color;
+        if (s._type === 'wall') {
+            document.getElementById('prop-x1').value = s.x1;
+            document.getElementById('prop-z1').value = s.z1;
+            document.getElementById('prop-x2').value = s.x2;
+            document.getElementById('prop-z2').value = s.z2;
+            document.getElementById('prop-y1').value = s.y1;
+            document.getElementById('prop-y2').value = s.y2;
+            document.getElementById('prop-xr').value = s.xr;
+            document.getElementById('prop-yr').value = s.yr;
+            document.getElementById('prop-tx').value = s._tx;
+            document.getElementById('prop-c').value = s._c;
+        } else if (s._type === 'enemy') {
+            document.getElementById('prop-id').value = s.id;
+            document.getElementById('prop-enemy-x').value = s.x;
+            document.getElementById('prop-enemy-z').value = s.z;
+        } else if (s._type === 'magazine') {
+            document.getElementById('prop-ammo').value = s.ammo;
+            document.getElementById('prop-mag-x').value = s.x;
+            document.getElementById('prop-mag-z').value = s.z;
+        } else if (s._type === 'medkit') {
+            document.getElementById('prop-health').value = s.health;
+            document.getElementById('prop-med-x').value = s.x;
+            document.getElementById('prop-med-z').value = s.z;
+        }
+    }
+}
+
+new Editor();

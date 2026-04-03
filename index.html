@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MapBuilder Pro - Level Editor</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="editor-container">
+    <div id="canvas-wrapper">
+        <canvas id="main-canvas"></canvas>
+        
+        <div class="toolbar">
+            <div class="tool-group">
+                <button id="btn-undo" title="Undo (Ctrl+Z)">Undo</button>
+                <button id="btn-redo" title="Redo (Ctrl+Y)">Redo</button>
+            </div>
+            <div class="divider"></div>
+            <div class="tool-group modes" id="mode-selector">
+                <button data-mode="wall" class="active">Wall</button>
+                <button data-mode="enemy">Enemy</button>
+                <button data-mode="magazine">Ammo</button>
+                <button data-mode="medkit">Health</button>
+            </div>
+            <div class="divider"></div>
+            <div class="tool-group">
+                <button id="btn-export" class="primary">Export JSON</button>
+                <button id="btn-import">Import JSON</button>
+                <input type="file" id="import-file" style="display: none;" accept=".json">
+            </div>
+        </div>
+
+        <div class="stats">
+            Mode: <span id="stat-mode">Wall</span> |
+            Coords (X, Z): <span id="stat-coords">0, 0</span> | 
+            Zoom: <span id="stat-zoom">100%</span> |
+            Grid: <span id="stat-grid">1.0</span>
+        </div>
+    </div>
+
+    <div id="side-panel">
+        <div class="panel-content">
+            <div class="panel-section">
+                <h3>Global Settings</h3>
+                <div class="input-group">
+                    <label>Grid Snap</label>
+                    <input type="number" id="grid-snap" value="1.0" step="0.1" min="0.1">
+                </div>
+                <div class="input-group">
+                    <label>Def Y1</label>
+                    <input type="number" id="default-z1" value="0" step="0.1">
+                </div>
+                <div class="input-group">
+                    <label>Def Y2</label>
+                    <input type="number" id="default-z2" value="1.0" step="0.1">
+                </div>
+            </div>
+
+            <div class="panel-section" id="object-properties" style="display: none;">
+                <h3 id="prop-title">Object Properties</h3>
+                
+                <div class="input-group">
+                    <label>Color</label>
+                    <input type="color" id="prop-color">
+                </div>
+
+                <!-- Wall Specific (X, Z plane, Y height) -->
+                <div id="props-wall" class="type-props">
+                    <div class="input-group">
+                        <label>Label (_c)</label>
+                        <input type="text" id="prop-c">
+                    </div>
+                    <div class="input-group">
+                        <label>Texture (_tx)</label>
+                        <input type="text" id="prop-tx">
+                    </div>
+                    <div class="input-group"><label>X1</label><input type="number" id="prop-x1" step="0.1"></div>
+                    <div class="input-group"><label>X2</label><input type="number" id="prop-x2" step="0.1"></div>
+                    <div class="input-group"><label>Z1 (Plane)</label><input type="number" id="prop-z1" step="0.1"></div>
+                    <div class="input-group"><label>Z2 (Plane)</label><input type="number" id="prop-z2" step="0.1"></div>
+                    <div class="input-group"><label>Y1 (Floor)</label><input type="number" id="prop-y1" step="0.1"></div>
+                    <div class="input-group"><label>Y2 (Ceil)</label><input type="number" id="prop-y2" step="0.1"></div>
+                    <div class="input-group"><label>XR Scale</label><input type="number" id="prop-xr" step="0.1"></div>
+                    <div class="input-group"><label>YR Scale</label><input type="number" id="prop-yr" step="0.1"></div>
+                </div>
+
+                <!-- Enemy Specific (X, Z plane) -->
+                <div id="props-enemy" class="type-props">
+                    <div class="input-group"><label>ID</label><input type="text" id="prop-id"></div>
+                    <div class="input-group"><label>X Position</label><input type="number" id="prop-enemy-x" step="0.1"></div>
+                    <div class="input-group"><label>Z Position</label><input type="number" id="prop-enemy-z" step="0.1"></div>
+                </div>
+
+                <!-- Magazine Specific -->
+                <div id="props-magazine" class="type-props">
+                    <div class="input-group"><label>Ammo Count</label><input type="number" id="prop-ammo"></div>
+                    <div class="input-group"><label>X Position</label><input type="number" id="prop-mag-x" step="0.1"></div>
+                    <div class="input-group"><label>Z Position</label><input type="number" id="prop-mag-z" step="0.1"></div>
+                </div>
+
+                <!-- Medkit Specific -->
+                <div id="props-medkit" class="type-props">
+                    <div class="input-group"><label>Health Val</label><input type="number" id="prop-health"></div>
+                    <div class="input-group"><label>X Position</label><input type="number" id="prop-med-x" step="0.1"></div>
+                    <div class="input-group"><label>Z Position</label><input type="number" id="prop-med-z" step="0.1"></div>
+                </div>
+
+                <button id="btn-delete" class="danger">Delete Object</button>
+            </div>
+
+            <div class="panel-section" id="no-selection">
+                <p class="hint">No object selected. Click to select, drag/click to create.</p>
+            </div>
+
+            <div class="panel-section help">
+                <h3>Shortcuts</h3>
+                <ul>
+                    <li>Arrows: Pan Camera</li>
+                    <li>Middle Mouse: Pan</li>
+                    <li>Wheel: Zoom</li>
+                    <li>Del / Backspace: Delete</li>
+                    <li>Ctrl+Z / Y: Undo / Redo</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
