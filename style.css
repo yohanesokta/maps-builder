@@ -148,17 +148,50 @@ h3 {
 }
 
 /* Toolbar */
+.tool-group.info {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding-right: 15px;
+}
+
+.copyright {
+    color: #666;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+}
+
+.btn-github {
+    color: #fff;
+    background: #333;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    text-decoration: none;
+    border: 1px solid #444;
+    transition: all 0.2s;
+}
+
+.btn-github:hover {
+    background: #444;
+    border-color: #666;
+}
+
 .toolbar {
     position: absolute;
     top: 10px;
     left: 10px;
+    right: 10px;
     display: flex;
+    align-items: center;
     gap: 10px;
     background: rgba(37, 37, 38, 0.9);
     padding: 6px;
     border-radius: 4px;
     border: 1px solid var(--border-color);
     box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    z-index: 1000;
 }
 
 .tool-group {
@@ -192,6 +225,10 @@ button.active {
 
 button.primary {
     background: var(--accent-color);
+}
+
+button.success {
+    background: #28a745 !important;
 }
 
 button.danger {

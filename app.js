@@ -169,17 +169,35 @@ class Renderer {
         this.drawGrid(state.gridSize);
 
         const data = objectManager.data;
+        const selection = state.selection;
 
         // Draw Walls
-        data.walls.forEach(w => this.drawWall(w, w === state.selected));
+        data.walls.forEach(w => this.drawWall(w, selection.includes(w)));
 
         // Draw point objects
-        data.enemies.forEach(e => this.drawEnemy(e, e === state.selected));
-        data.magazines.forEach(m => this.drawMagazine(m, m === state.selected));
-        data.medkits.forEach(k => this.drawMedkit(k, k === state.selected));
+        data.enemies.forEach(e => this.drawEnemy(e, selection.includes(e)));
+        data.magazines.forEach(m => this.drawMagazine(m, selection.includes(m)));
+        data.medkits.forEach(k => this.drawMedkit(k, selection.includes(k)));
 
         // Draw Previews
         this.drawPreview(state);
+        this.drawSelectionBox(state);
+    }
+
+    drawSelectionBox(state) {
+        if (!state.isRectSelecting || !state.rectStart) return;
+        const ctx = this.ctx;
+        const x = Math.min(state.rectStart.x, state.mousePos.x);
+        const y = Math.min(state.rectStart.y, state.mousePos.y);
+        const w = Math.abs(state.rectStart.x - state.mousePos.x);
+        const h = Math.abs(state.rectStart.y - state.mousePos.y);
+
+        ctx.strokeStyle = '#007acc';
+        ctx.setLineDash([5, 5]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.fillStyle = 'rgba(0, 122, 204, 0.1)';
+        ctx.fillRect(x, y, w, h);
+        ctx.setLineDash([]);
     }
 
     drawGrid(gridSize) {
@@ -356,9 +374,9 @@ class View3D {
         }
     }
 
-    project(x, y, z) {
-        const tx = x - this.camX;
-        const tz = z - this.camZ;
+    project(x, y, z, cx = 0, cz = 0) {
+        const tx = (x - cx) - this.camX;
+        const tz = (z - cz) - this.camZ;
 
         // Simple 3D to 2D projection
         // Rotate around Y (yaw)
@@ -377,7 +395,7 @@ class View3D {
         };
     }
 
-    draw(objectManager) {
+    draw(objectManager, state) {
         const ctx = this.ctx;
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -385,38 +403,58 @@ class View3D {
         ctx.strokeStyle = '#333';
         ctx.lineWidth = 1;
         
-        // Draw Grid
-        for(let i = -10; i <= 10; i++) {
-            this.drawLine(i, 0, -10, i, 0, 10, '#222');
-            this.drawLine(-10, 0, i, 10, 0, i, '#222');
+        const selection = state.selection;
+        if (selection.length === 0) return;
+
+        // Calculate Selection Center
+        let centerX = 0, centerZ = 0;
+        selection.forEach(o => {
+            if (o._type === 'wall') {
+                centerX += (o.x1 + o.x2) / 2;
+                centerZ += (o.z1 + o.z2) / 2;
+            } else {
+                centerX += o.x;
+                centerZ += o.z;
+            }
+        });
+        centerX /= selection.length;
+        centerZ /= selection.length;
+
+        // Draw Grid relative to center (World-aligned)
+        const range = 10;
+        const startX = Math.floor(centerX) - range;
+        const endX = Math.floor(centerX) + range;
+        const startZ = Math.floor(centerZ) - range;
+        const endZ = Math.floor(centerZ) + range;
+
+        for(let x = startX; x <= endX; x++) {
+            this.drawLine(x, 0, startZ, x, 0, endZ, '#222', centerX, centerZ);
+        }
+        for(let z = startZ; z <= endZ; z++) {
+            this.drawLine(startX, 0, z, endX, 0, z, '#222', centerX, centerZ);
         }
 
-        const data = objectManager.data;
-        data.walls.forEach(w => {
-            const color = w._color;
-            // Draw wall box
-            // Bottom rectangle (Floor)
-            this.drawRect3D(w.x1, w.x2, w.z1, w.z2, w.y1, color);
-            // Top rectangle (Ceiling)
-            this.drawRect3D(w.x1, w.x2, w.z1, w.z2, w.y2, color);
-            // Vertical edges
-            this.drawLine(w.x1, w.y1, w.z1, w.x1, w.y2, w.z1, color);
-            this.drawLine(w.x2, w.y1, w.z1, w.x2, w.y2, w.z1, color);
-            this.drawLine(w.x1, w.y1, w.z2, w.x1, w.y2, w.z2, color);
-            this.drawLine(w.x2, w.y1, w.z2, w.x2, w.y2, w.z2, color);
+        selection.forEach(selected => {
+            const color = selected._color;
+            if (selected._type === 'wall') {
+                this.drawRect3D(selected.x1, selected.x2, selected.z1, selected.z2, selected.y1, color, centerX, centerZ);
+                this.drawRect3D(selected.x1, selected.x2, selected.z1, selected.z2, selected.y2, color, centerX, centerZ);
+                this.drawLine(selected.x1, selected.y1, selected.z1, selected.x1, selected.y2, selected.z1, color, centerX, centerZ);
+                this.drawLine(selected.x2, selected.y1, selected.z1, selected.x2, selected.y2, selected.z1, color, centerX, centerZ);
+                this.drawLine(selected.x1, selected.y1, selected.z2, selected.x1, selected.y2, selected.z2, color, centerX, centerZ);
+                this.drawLine(selected.x2, selected.y1, selected.z2, selected.x2, selected.y2, selected.z2, color, centerX, centerZ);
+            } else {
+                const size = (selected._type === 'enemy') ? 0.8 : 0.4;
+                this.drawEntity(selected.x, selected.z, color, size, centerX, centerZ);
+            }
         });
-
-        // Entities as simple boxes or points
-        data.enemies.forEach(e => this.drawEntity(e.x, e.z, '#f00', 0.8));
-        data.magazines.forEach(m => this.drawEntity(m.x, m.z, '#ff0', 0.4));
-        data.medkits.forEach(k => this.drawEntity(k.x, k.z, '#0f0', 0.4));
     }
 
-    drawRect3D(x1, x2, z1, z2, y, color) {
-        const p1 = this.project(x1, y, z1);
-        const p2 = this.project(x2, y, z1);
-        const p3 = this.project(x2, y, z2);
-        const p4 = this.project(x1, y, z2);
+    drawRect3D(x1, x2, z1, z2, y, color, cx = 0, cz = 0) {
+        const p1 = this.project(x1, y, z1, cx, cz);
+        const p2 = this.project(x2, y, z1, cx, cz);
+        const p3 = this.project(x2, y, z2, cx, cz);
+        const p4 = this.project(x1, y, z2, cx, cz);
         
         this.ctx.strokeStyle = color;
         this.ctx.beginPath();
@@ -428,9 +466,9 @@ class View3D {
         this.ctx.stroke();
     }
 
-    drawLine(x1, y1, z1, x2, y2, z2, color) {
-        const p1 = this.project(x1, y1, z1);
-        const p2 = this.project(x2, y2, z2);
+    drawLine(x1, y1, z1, x2, y2, z2, color, cx = 0, cz = 0) {
+        const p1 = this.project(x1, y1, z1, cx, cz);
+        const p2 = this.project(x2, y2, z2, cx, cz);
         this.ctx.strokeStyle = color;
         this.ctx.beginPath();
         this.ctx.moveTo(p1.x, p1.y);
@@ -438,11 +476,11 @@ class View3D {
         this.ctx.stroke();
     }
 
-    drawEntity(x, z, color, size) {
+    drawEntity(x, z, color, size, cx = 0, cz = 0) {
         const y = 0;
-        this.drawLine(x - size/2, y, z, x + size/2, y, z, color);
-        this.drawLine(x, y, z - size/2, x, y, z + size/2, color);
-        this.drawLine(x, y, z, x, y + size, z, color);
+        this.drawLine(x - size/2, y, z, x + size/2, y, z, color, cx, cz);
+        this.drawLine(x, y, z - size/2, x, y, z + size/2, color, cx, cz);
+        this.drawLine(x, y, z, x, y + size, z, color, cx, cz);
     }
 }
 
@@ -464,11 +502,12 @@ class Editor {
             gridSize: 1.0,
             defaultY1: 0,
             defaultY2: 1.0,
-            selected: null,
+            selection: [],
             isDrawing: false,
             isPanning: false,
             isDragging: false,
-            drawStart: null,
+            isRectSelecting: false,
+            rectStart: null,
             mousePos: { x: 0, y: 0 },
             lastMouse: { x: 0, y: 0 },
             keys: {}
@@ -513,16 +552,33 @@ class Editor {
         } else if (e.button === 0) {
             const hit = this.objects.getAt(world.x, world.z, this.camera.zoom);
             if (hit) {
-                this.state.selected = hit;
+                const isShift = this.state.keys['ShiftLeft'] || this.state.keys['ShiftRight'];
+                if (isShift) {
+                    if (this.state.selection.includes(hit)) {
+                        this.state.selection = this.state.selection.filter(o => o !== hit);
+                    } else {
+                        this.state.selection.push(hit);
+                    }
+                } else {
+                    if (!this.state.selection.includes(hit)) {
+                        this.state.selection = [hit];
+                    }
+                }
                 this.state.isDragging = true;
                 this.ui.updateProperties();
             } else {
-                this.state.selected = null;
-                if (this.state.mode === 'wall') {
-                    this.state.isDrawing = true;
-                    this.state.drawStart = snapped;
+                if (this.state.mode === 'select') {
+                    this.state.isRectSelecting = true;
+                    this.state.rectStart = { x: e.clientX, y: e.clientY };
+                    this.state.selection = [];
                 } else {
-                    this.placeObject(this.state.mode, snapped);
+                    this.state.selection = [];
+                    if (this.state.mode === 'wall') {
+                        this.state.isDrawing = true;
+                        this.state.drawStart = snapped;
+                    } else {
+                        this.placeObject(this.state.mode, snapped);
+                    }
                 }
                 this.ui.updateProperties();
             }
@@ -535,17 +591,44 @@ class Editor {
         
         if (this.state.isPanning) {
             this.camera.pan(e.clientX - this.state.lastMouse.x, e.clientY - this.state.lastMouse.y);
-        } else if (this.state.isDragging && this.state.selected) {
+        } else if (this.state.isDragging && this.state.selection.length > 0) {
             const dx = (e.clientX - this.state.lastMouse.x) / this.camera.zoom;
             const dz = (e.clientY - this.state.lastMouse.y) / this.camera.zoom;
-            this.moveObject(this.state.selected, dx, dz);
+            this.state.selection.forEach(obj => this.moveObject(obj, dx, dz, false));
+            this.ui.updateProperties();
         }
 
         this.state.lastMouse = { x: e.clientX, y: e.clientY };
         this.updateStats();
     }
 
-    onMouseUp() {
+    onMouseUp(e) {
+        if (this.state.isRectSelecting) {
+            const x1 = Math.min(this.state.rectStart.x, e.clientX);
+            const y1 = Math.min(this.state.rectStart.y, e.clientY);
+            const x2 = Math.max(this.state.rectStart.x, e.clientX);
+            const y2 = Math.max(this.state.rectStart.y, e.clientY);
+
+            const w1 = this.camera.screenToWorld(x1, y1, this.canvas.width, this.canvas.height);
+            const w2 = this.camera.screenToWorld(x2, y2, this.canvas.width, this.canvas.height);
+
+            const sel = [];
+            const data = this.objects.data;
+            
+            // Check all objects
+            ['walls', 'enemies', 'magazines', 'medkits'].forEach(type => {
+                data[type].forEach(o => {
+                    if (type === 'walls') {
+                        if (o.x1 >= w1.x && o.x2 <= w2.x && o.z1 >= w1.z && o.z2 <= w2.z) sel.push(o);
+                    } else {
+                        if (o.x >= w1.x && o.x <= w2.x && o.z >= w1.z && o.z <= w2.z) sel.push(o);
+                    }
+                });
+            });
+            this.state.selection = sel;
+            this.ui.updateProperties();
+        }
+
         if (this.state.isDrawing && this.state.drawStart) {
             const world = this.camera.screenToWorld(this.state.mousePos.x, this.state.mousePos.y, this.canvas.width, this.canvas.height);
             const end = { x: Precision.round(world.x, this.state.gridSize), z: Precision.round(world.z, this.state.gridSize) };
@@ -560,7 +643,7 @@ class Editor {
                     y2: this.state.defaultY2, 
                     xr: 1, yr: 1, _tx: 'default', _c: 'wall'
                 });
-                this.state.selected = wall;
+                this.state.selection = [wall];
                 this.saveHistory();
                 this.ui.updateProperties();
             }
@@ -571,6 +654,8 @@ class Editor {
         this.state.isPanning = false;
         this.state.isDrawing = false;
         this.state.isDragging = false;
+        this.state.isRectSelecting = false;
+        this.state.rectStart = null;
         this.state.drawStart = null;
     }
 
@@ -587,6 +672,16 @@ class Editor {
         if (e.ctrlKey && e.code === 'KeyZ') this.undo();
         if (e.ctrlKey && e.code === 'KeyY') this.redo();
         if (e.code === 'Delete' || e.code === 'Backspace') this.deleteSelected();
+        
+        // Select All
+        if (e.ctrlKey && e.code === 'KeyA') {
+            e.preventDefault();
+            const all = [];
+            const data = this.objects.data;
+            ['walls', 'enemies', 'magazines', 'medkits'].forEach(t => all.push(...data[t]));
+            this.state.selection = all;
+            this.ui.updateProperties();
+        }
 
         // Viewport Presets
         if (['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(e.code)) {
@@ -605,12 +700,12 @@ class Editor {
         if (mode === 'medkit') props = { ...props, health: 50 };
         
         const obj = this.objects.add(mode, props);
-        this.state.selected = obj;
+        this.state.selection = [obj];
         this.saveHistory();
         this.ui.updateProperties();
     }
 
-    moveObject(obj, dx, dz) {
+    moveObject(obj, dx, dz, updateUI = true) {
         if (obj._type === 'wall') {
             obj.x1 = Precision.round(obj.x1 + dx, 0.1);
             obj.x2 = Precision.round(obj.x2 + dx, 0.1);
@@ -620,13 +715,13 @@ class Editor {
             obj.x = Precision.round(obj.x + dx, 0.1);
             obj.z = Precision.round(obj.z + dz, 0.1);
         }
-        this.ui.updateProperties();
+        if (updateUI) this.ui.updateProperties();
     }
 
     deleteSelected() {
-        if (!this.state.selected) return;
-        this.objects.remove(this.state.selected);
-        this.state.selected = null;
+        if (this.state.selection.length === 0) return;
+        this.state.selection.forEach(obj => this.objects.remove(obj));
+        this.state.selection = [];
         this.saveHistory();
         this.ui.updateProperties();
     }
@@ -648,7 +743,7 @@ class Editor {
         if (this.historyPointer > 0) {
             this.historyPointer--;
             this.objects.deserialize(JSON.parse(this.history[this.historyPointer]));
-            this.state.selected = null;
+            this.state.selection = [];
             this.ui.updateProperties();
         }
     }
@@ -657,7 +752,7 @@ class Editor {
         if (this.historyPointer < this.history.length - 1) {
             this.historyPointer++;
             this.objects.deserialize(JSON.parse(this.history[this.historyPointer]));
-            this.state.selected = null;
+            this.state.selection = [];
             this.ui.updateProperties();
         }
     }
@@ -679,7 +774,7 @@ class Editor {
         this.camera.update();
         this.view3D.update(this.state.keys);
         this.renderer.draw(this.objects, this.state);
-        this.view3D.draw(this.objects);
+        this.view3D.draw(this.objects, this.state);
         requestAnimationFrame(() => this.loop());
     }
 }
@@ -729,6 +824,20 @@ class UIManager {
             a.href = url; a.download = 'map.json'; a.click();
         };
 
+        document.getElementById('btn-copy').onclick = () => {
+            const data = JSON.stringify(e.objects.serialize(), null, 2);
+            navigator.clipboard.writeText(data).then(() => {
+                const btn = document.getElementById('btn-copy');
+                const oldText = btn.innerText;
+                btn.innerText = 'Copied!';
+                btn.classList.add('success');
+                setTimeout(() => {
+                    btn.innerText = oldText;
+                    btn.classList.remove('success');
+                }, 2000);
+            });
+        };
+
         document.getElementById('btn-import').onclick = () => document.getElementById('import-file').click();
         document.getElementById('import-file').onchange = (ev) => {
             const reader = new FileReader();
@@ -758,8 +867,8 @@ class UIManager {
         inputs.forEach(id => {
             const el = document.getElementById('prop-' + id);
             el.addEventListener('change', () => {
-                const s = e.state.selected;
-                if (!s) return;
+                if (e.state.selection.length !== 1) return;
+                const s = e.state.selection[0];
                 
                 let val = el.type === 'number' ? parseFloat(el.value) : el.value;
                 
@@ -779,16 +888,22 @@ class UIManager {
     }
 
     updateProperties() {
-        const s = this.editor.state.selected;
+        const selection = this.editor.state.selection;
         const panel = document.getElementById('object-properties');
         const empty = document.getElementById('no-selection');
 
-        if (!s) {
+        if (selection.length !== 1) {
             panel.style.display = 'none';
             empty.style.display = 'block';
+            if (selection.length > 1) {
+                empty.innerHTML = `<p class="hint">Multi-selection (${selection.length} objects).<br>Editing disabled.</p>`;
+            } else {
+                empty.innerHTML = `<p class="hint">No object selected. Click to select, drag/click to create.</p>`;
+            }
             return;
         }
 
+        const s = selection[0];
         panel.style.display = 'block';
         empty.style.display = 'none';
         document.getElementById('prop-title').innerText = s._type.toUpperCase() + ' PROPERTIES';
