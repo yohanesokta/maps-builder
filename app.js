@@ -593,9 +593,9 @@ class Editor {
         
         this.state = {
             mode: 'wall',
-            gridSize: 1.0,
-            defaultY1: 0,
-            defaultY2: 1.0,
+            gridSize: parseFloat(localStorage.getItem('mb_gridSize')) || 1.0,
+            defaultY1: parseFloat(localStorage.getItem('mb_defaultY1')) || 0,
+            defaultY2: parseFloat(localStorage.getItem('mb_defaultY2')) || 1.0,
             selection: [],
             isDrawing: false,
             isPanning: false,
@@ -616,6 +616,12 @@ class Editor {
 
     init() {
         this.ui = new UIManager(this);
+        
+        // Sync UI with loaded state
+        document.getElementById('grid-snap').value = this.state.gridSize;
+        document.getElementById('default-z1').value = this.state.defaultY1;
+        document.getElementById('default-z2').value = this.state.defaultY2;
+
         this.setupInputs();
         this.resize();
         window.addEventListener('resize', () => this.resize());
@@ -945,14 +951,19 @@ class UIManager {
 
         document.getElementById('grid-snap').addEventListener('input', ev => {
             e.state.gridSize = parseFloat(ev.target.value) || 0.1;
+            localStorage.setItem('mb_gridSize', e.state.gridSize);
         });
 
         document.getElementById('default-z1').addEventListener('input', ev => {
-            e.state.defaultY1 = parseFloat(ev.target.value) || 0;
+            const val = parseFloat(ev.target.value);
+            e.state.defaultY1 = isNaN(val) ? 0 : val;
+            localStorage.setItem('mb_defaultY1', e.state.defaultY1);
         });
 
         document.getElementById('default-z2').addEventListener('input', ev => {
-            e.state.defaultY2 = parseFloat(ev.target.value) || 0;
+            const val = parseFloat(ev.target.value);
+            e.state.defaultY2 = isNaN(val) ? 0 : val;
+            localStorage.setItem('mb_defaultY2', e.state.defaultY2);
         });
 
         document.getElementById('btn-undo').onclick = () => e.undo();
