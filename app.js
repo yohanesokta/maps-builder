@@ -322,6 +322,7 @@ class View3D {
         
         this.isRotating = false;
         this.lastMouse = { x: 0, y: 0 };
+        this._lastSelection = [];
         
         this.setupInputs();
     }
@@ -353,6 +354,14 @@ class View3D {
             case '4': // Isometric
                 this.yaw = 0.78; this.pitch = 0.5; break;
         }
+    }
+
+    resetView() {
+        this.camX = 0;
+        this.camZ = 0;
+        this.yaw = 0.5;
+        this.pitch = 0.5;
+        this.zoom = 40;
     }
 
     update(keys) {
@@ -404,6 +413,16 @@ class View3D {
         ctx.lineWidth = 1;
         
         const selection = state.selection;
+        
+        // Reactive Reset: Center camera when selection changes
+        const selectionSame = this._lastSelection.length === selection.length &&
+                              this._lastSelection.every((v, i) => v === selection[i]);
+                              
+        if (!selectionSame) {
+            this.resetView();
+            this._lastSelection = [...selection];
+        }
+
         if (selection.length === 0) return;
 
         // Calculate Selection Center
@@ -445,7 +464,7 @@ class View3D {
                 this.drawLine(selected.x2, selected.y1, selected.z2, selected.x2, selected.y2, selected.z2, color, centerX, centerZ);
             } else {
                 const size = (selected._type === 'enemy') ? 0.8 : 0.4;
-                this.drawEntity(selected.x, selected.z, color, size, centerX, centerZ);
+                this.drawEntity(selected.x, selected.z, color, size, centerX, centerZ, selected.y1, selected.y2);
             }
         });
     }
@@ -476,11 +495,10 @@ class View3D {
         this.ctx.stroke();
     }
 
-    drawEntity(x, z, color, size, cx = 0, cz = 0) {
-        const y = 0;
-        this.drawLine(x - size/2, y, z, x + size/2, y, z, color, cx, cz);
-        this.drawLine(x, y, z - size/2, x, y, z + size/2, color, cx, cz);
-        this.drawLine(x, y, z, x, y + size, z, color, cx, cz);
+    drawEntity(x, z, color, size, cx = 0, cz = 0, y1 = 0, y2 = 1.0) {
+        this.drawLine(x - size/2, y1, z, x + size/2, y1, z, color, cx, cz);
+        this.drawLine(x, y1, z - size/2, x, y1, z + size/2, color, cx, cz);
+        this.drawLine(x, y1, z, x, y2, z, color, cx, cz);
     }
 }
 
@@ -565,7 +583,7 @@ class Editor {
                     }
                 }
                 this.state.isDragging = true;
-                this.ui.updateProperties();
+                this.ui.updateProperties(true);
             } else {
                 if (this.state.mode === 'select') {
                     this.state.isRectSelecting = true;
@@ -580,7 +598,7 @@ class Editor {
                         this.placeObject(this.state.mode, snapped);
                     }
                 }
-                this.ui.updateProperties();
+                this.ui.updateProperties(true);
             }
         }
         this.state.lastMouse = { x: e.clientX, y: e.clientY };
@@ -626,7 +644,7 @@ class Editor {
                 });
             });
             this.state.selection = sel;
-            this.ui.updateProperties();
+            this.ui.updateProperties(true);
         }
 
         if (this.state.isDrawing && this.state.drawStart) {
@@ -645,7 +663,7 @@ class Editor {
                 });
                 this.state.selection = [wall];
                 this.saveHistory();
-                this.ui.updateProperties();
+                this.ui.updateProperties(true);
             }
         }
 
@@ -680,7 +698,7 @@ class Editor {
             const data = this.objects.data;
             ['walls', 'enemies', 'magazines', 'medkits'].forEach(t => all.push(...data[t]));
             this.state.selection = all;
-            this.ui.updateProperties();
+            this.ui.updateProperties(true);
         }
 
         // Viewport Presets
@@ -694,7 +712,7 @@ class Editor {
     }
 
     placeObject(mode, pos) {
-        let props = { x: pos.x, z: pos.z };
+        let props = { x: pos.x, z: pos.z, y1: this.state.defaultY1, y2: this.state.defaultY2 };
         if (mode === 'enemy') props = { ...props, id: 'guard_1' };
         if (mode === 'magazine') props = { ...props, ammo: 30 };
         if (mode === 'medkit') props = { ...props, health: 50 };
@@ -702,7 +720,7 @@ class Editor {
         const obj = this.objects.add(mode, props);
         this.state.selection = [obj];
         this.saveHistory();
-        this.ui.updateProperties();
+        this.ui.updateProperties(true);
     }
 
     moveObject(obj, dx, dz, updateUI = true) {
@@ -723,7 +741,7 @@ class Editor {
         this.state.selection.forEach(obj => this.objects.remove(obj));
         this.state.selection = [];
         this.saveHistory();
-        this.ui.updateProperties();
+        this.ui.updateProperties(true);
     }
 
     saveHistory() {
@@ -744,7 +762,7 @@ class Editor {
             this.historyPointer--;
             this.objects.deserialize(JSON.parse(this.history[this.historyPointer]));
             this.state.selection = [];
-            this.ui.updateProperties();
+            this.ui.updateProperties(true);
         }
     }
 
@@ -753,7 +771,7 @@ class Editor {
             this.historyPointer++;
             this.objects.deserialize(JSON.parse(this.history[this.historyPointer]));
             this.state.selection = [];
-            this.ui.updateProperties();
+            this.ui.updateProperties(true);
         }
     }
 
@@ -887,7 +905,8 @@ class UIManager {
         });
     }
 
-    updateProperties() {
+    updateProperties(reset3D = false) {
+        if (reset3D) this.editor.view3D.resetView();
         const selection = this.editor.state.selection;
         const panel = document.getElementById('object-properties');
         const empty = document.getElementById('no-selection');
