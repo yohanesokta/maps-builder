@@ -70,7 +70,7 @@ canvas {
     display: block;
 }
 
-/* UI Panels */
+
 #side-panel {
     width: 300px;
     min-width: 300px;
@@ -78,7 +78,7 @@ canvas {
     border-left: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
-    height: 100vh; /* Strictly viewport height */
+    height: 100vh;
     position: relative;
     z-index: 10;
 }
@@ -87,10 +87,10 @@ canvas {
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    padding-bottom: 20px; /* Space at the bottom */
+    padding-bottom: 20px;
 }
 
-/* Scrollbar styling */
+
 .panel-content::-webkit-scrollbar {
     width: 4px;
 }
@@ -123,7 +123,7 @@ h3 {
 }
 
 .input-group label {
-    flex: 0 0 100px; /* Wider labels for single column */
+    flex: 0 0 100px;
     font-size: 11px;
     color: #999;
     white-space: nowrap;
@@ -147,7 +147,7 @@ h3 {
     margin-top: 10px;
 }
 
-/* Toolbar */
+
 .tool-group.info {
     margin-left: auto;
     display: flex;
@@ -241,7 +241,7 @@ button.danger:hover {
     background: #c44;
 }
 
-/* Info Overlays */
+
 .stats {
     position: absolute;
     bottom: 10px;

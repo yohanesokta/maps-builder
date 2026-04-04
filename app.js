@@ -29,15 +29,15 @@ const ColorUtils = {
 class Camera {
     constructor() {
         this.x = 0;
-        this.z = 0; // Camera Z is the top-down vertical
+        this.z = 0; 
         this.zoom = 20;
         this.minZoom = 2;
         this.maxZoom = 500;
         
         this.velX = 0;
         this.velZ = 0;
-        this.friction = 0.85; // Slightly higher friction for tighter stop
-        this.speed = 0.05; // Significant reduction in speed
+        this.friction = 0.85; 
+        this.speed = 0.05; 
     }
 
     update() {
@@ -69,7 +69,7 @@ class Camera {
 
     zoomAt(delta, sx, sy, canvasWidth, canvasHeight) {
         const before = this.screenToWorld(sx, sy, canvasWidth, canvasHeight);
-        // Smoother zoom: 0.96 and 1.04 instead of 0.9 and 1.1
+        
         this.zoom = Math.min(Math.max(this.zoom * (delta > 0 ? 0.96 : 1.04), this.minZoom), this.maxZoom);
         const after = this.screenToWorld(sx, sy, canvasWidth, canvasHeight);
         this.x += before.x - after.x;
@@ -86,15 +86,20 @@ class ObjectManager {
             walls: [],
             enemies: [],
             magazines: [],
-            medkits: []
+            medkits: [],
+            player: { x: 0, z: 0, y1: 0, y2: 1.0, _type: 'player', _color: '#ff00ff', id: 'player_1' }
         };
     }
 
     clear() {
-        this.data = { walls: [], enemies: [], magazines: [], medkits: [] };
+        this.data = { 
+            walls: [], enemies: [], magazines: [], medkits: [],
+            player: { x: 0, z: 0, y1: 0, y2: 1.0, _type: 'player', _color: '#ff00ff', id: 'player_1' }
+        };
     }
 
     add(type, props) {
+        if (type === 'player') return this.data.player;
         const obj = { 
             _type: type, 
             _color: ColorUtils.random(), 
@@ -105,6 +110,7 @@ class ObjectManager {
     }
 
     remove(obj) {
+        if (obj._type === 'player') return;
         const collection = this.data[obj._type + 's'];
         const idx = collection.indexOf(obj);
         if (idx !== -1) collection.splice(idx, 1);
@@ -112,6 +118,8 @@ class ObjectManager {
 
     getAt(wx, wz, zoom) {
         const threshold = 12 / zoom; 
+        const p = this.data.player;
+        if (Math.hypot(wx - p.x, wz - p.z) < threshold) return p;
 
         const types = ['medkits', 'magazines', 'enemies', 'walls'];
         for (const type of types) {
@@ -119,7 +127,6 @@ class ObjectManager {
             for (let i = list.length - 1; i >= 0; i--) {
                 const o = list[i];
                 if (type === 'walls') {
-                    // Normalize for hit detection
                     const minX = Math.min(o.x1, o.x2);
                     const maxX = Math.max(o.x1, o.x2);
                     const minZ = Math.min(o.z1, o.z2);
@@ -141,11 +148,10 @@ class ObjectManager {
     deserialize(json) {
         this.clear();
         for (const key in json) {
-            if (this.data[key]) {
+            if (key === 'player') {
+                this.data.player = { ...this.data.player, ...json[key] };
+            } else if (this.data[key]) {
                 const type = key.slice(0, -1);
-                // Ensure mapping from loaded keys to our internal keys if they differ
-                // Prompt specified WALL has x1, y1, z1, x2, y2, z2. 
-                // We map Plane(X,Z) and Height(Y).
                 this.data[key] = json[key].map(o => ({ ...o, _type: type }));
             }
         }
@@ -171,15 +177,18 @@ class Renderer {
         const data = objectManager.data;
         const selection = state.selection;
 
+        // Draw Player (Mandatory)
+        this.drawPlayer(data.player, selection.includes(data.player));
+
         // Draw Walls
         data.walls.forEach(w => this.drawWall(w, selection.includes(w)));
 
-        // Draw point objects
+        
         data.enemies.forEach(e => this.drawEnemy(e, selection.includes(e)));
         data.magazines.forEach(m => this.drawMagazine(m, selection.includes(m)));
         data.medkits.forEach(k => this.drawMedkit(k, selection.includes(k)));
 
-        // Draw Previews
+        
         this.drawPreview(state);
         this.drawSelectionBox(state);
     }
@@ -206,6 +215,8 @@ class Renderer {
         const w = this.canvas.width;
         const h = this.canvas.height;
 
+        if (!gridSize || gridSize <= 0) gridSize = 1.0;
+
         const tl = cam.screenToWorld(0, 0, w, h);
         const br = cam.screenToWorld(w, h, w, h);
 
@@ -215,16 +226,52 @@ class Renderer {
         const endZ = Math.ceil(br.z / gridSize) * gridSize;
 
         ctx.lineWidth = 1;
+        
+        // Vertical lines
         for (let x = startX; x <= endX; x += gridSize) {
             const s = cam.worldToScreen(x, 0, w, h);
-            ctx.strokeStyle = Math.abs(x) < 0.01 ? '#666' : '#2a2a2a';
-            ctx.beginPath(); ctx.moveTo(s.x, 0); ctx.lineTo(s.x, h); ctx.stroke();
+            ctx.strokeStyle = Math.abs(x) < 0.01 ? '#888' : '#333';
+            ctx.beginPath();
+            ctx.moveTo(s.x, 0);
+            ctx.lineTo(s.x, h);
+            ctx.stroke();
+            
+            // Safety break for extreme zoom/grid
+            if (x > startX + 1000 * gridSize) break;
         }
+        
+        // Horizontal lines
         for (let z = startZ; z <= endZ; z += gridSize) {
             const s = cam.worldToScreen(0, z, w, h);
-            ctx.strokeStyle = Math.abs(z) < 0.01 ? '#666' : '#2a2a2a';
-            ctx.beginPath(); ctx.moveTo(0, s.y); ctx.lineTo(w, s.y); ctx.stroke();
+            ctx.strokeStyle = Math.abs(z) < 0.01 ? '#888' : '#333';
+            ctx.beginPath();
+            ctx.moveTo(0, s.y);
+            ctx.lineTo(w, s.y);
+            ctx.stroke();
+            
+            // Safety break
+            if (z > startZ + 1000 * gridSize) break;
         }
+    }
+
+    drawPlayer(p, isSelected) {
+        const s = this.camera.worldToScreen(p.x, p.z, this.canvas.width, this.canvas.height);
+        const radius = 10;
+        this.ctx.beginPath();
+        this.ctx.arc(s.x, s.y, radius, 0, Math.PI * 2);
+        this.ctx.fillStyle = p._color;
+        this.ctx.fill();
+        
+        // Two borders
+        this.ctx.strokeStyle = isSelected ? '#fff' : '#000';
+        this.ctx.lineWidth = 2;
+        this.ctx.stroke();
+        
+        this.ctx.beginPath();
+        this.ctx.arc(s.x, s.y, radius + 3, 0, Math.PI * 2);
+        this.ctx.strokeStyle = isSelected ? '#fff' : 'rgba(255,255,255,0.3)';
+        this.ctx.lineWidth = 1;
+        this.ctx.stroke();
     }
 
     drawWall(w, isSelected) {
@@ -345,13 +392,13 @@ class View3D {
 
     setPreset(n) {
         switch(n) {
-            case '1': // Top
+            case '1': 
                 this.yaw = 0; this.pitch = -Math.PI/2; break;
-            case '2': // Front
+            case '2': 
                 this.yaw = 0; this.pitch = 0; break;
-            case '3': // Side
+            case '3': 
                 this.yaw = Math.PI/2; this.pitch = 0; break;
-            case '4': // Isometric
+            case '4': 
                 this.yaw = 0.78; this.pitch = 0.5; break;
         }
     }
@@ -387,16 +434,16 @@ class View3D {
         const tx = (x - cx) - this.camX;
         const tz = (z - cz) - this.camZ;
 
-        // Simple 3D to 2D projection
-        // Rotate around Y (yaw)
+        
+        
         let x1 = tx * Math.cos(this.yaw) - tz * Math.sin(this.yaw);
         let z1 = tx * Math.sin(this.yaw) + tz * Math.cos(this.yaw);
         
-        // Rotate around X (pitch)
+        
         let y2 = y * Math.cos(this.pitch) - z1 * Math.sin(this.pitch);
         let z2 = y * Math.sin(this.pitch) + z1 * Math.cos(this.pitch);
         
-        // Perspective (or just scale for orthographic-ish preview)
+        
         const factor = 200 / (z2 + 400); 
         return {
             x: x1 * this.zoom * factor + this.canvas.width / 2,
@@ -414,7 +461,7 @@ class View3D {
         
         const selection = state.selection;
         
-        // Reactive Reset: Center camera when selection changes
+        
         const selectionSame = this._lastSelection.length === selection.length &&
                               this._lastSelection.every((v, i) => v === selection[i]);
                               
@@ -425,7 +472,7 @@ class View3D {
 
         if (selection.length === 0) return;
 
-        // Calculate Selection Center
+        
         let centerX = 0, centerZ = 0;
         selection.forEach(o => {
             if (o._type === 'wall') {
@@ -439,7 +486,7 @@ class View3D {
         centerX /= selection.length;
         centerZ /= selection.length;
 
-        // Draw Grid relative to center (World-aligned)
+        
         const range = 10;
         const startX = Math.floor(centerX) - range;
         const endX = Math.floor(centerX) + range;
@@ -452,6 +499,10 @@ class View3D {
         for(let z = startZ; z <= endZ; z++) {
             this.drawLine(startX, 0, z, endX, 0, z, '#222', centerX, centerZ);
         }
+
+        // Draw Player (Mandatory)
+        const p = objectManager.data.player;
+        this.drawEllipsoid(p.x, p.z, p._color, 0.6, centerX, centerZ, p.y1, p.y2);
 
         selection.forEach(selected => {
             const color = selected._color;
@@ -467,6 +518,29 @@ class View3D {
                 this.drawEntity(selected.x, selected.z, color, size, centerX, centerZ, selected.y1, selected.y2);
             }
         });
+    }
+
+    drawEllipsoid(x, z, color, radius, cx, cz, y1, y2) {
+        this.ctx.strokeStyle = color;
+        const segments = 8;
+        const height = y2 - y1;
+        const cy = y1 + height / 2;
+        
+        // Vertical rings
+        for (let i = 0; i < segments; i++) {
+            const angle = (i / segments) * Math.PI;
+            this.ctx.beginPath();
+            for (let j = 0; j <= 16; j++) {
+                const phi = (j / 16) * Math.PI * 2;
+                const rx = radius * Math.cos(phi) * Math.sin(angle);
+                const rz = radius * Math.sin(phi);
+                const ry = (height/2) * Math.cos(phi) * Math.cos(angle);
+                const proj = this.project(x + rx, cy + ry, z + rz, cx, cz);
+                if (j === 0) this.ctx.moveTo(proj.x, proj.y);
+                else this.ctx.lineTo(proj.x, proj.y);
+            }
+            this.ctx.stroke();
+        }
     }
 
     drawRect3D(x1, x2, z1, z2, y, color, cx = 0, cz = 0) {
@@ -634,7 +708,7 @@ class Editor {
             const sel = [];
             const data = this.objects.data;
             
-            // Check all objects
+            
             ['walls', 'enemies', 'magazines', 'medkits'].forEach(type => {
                 data[type].forEach(o => {
                     if (type === 'walls') {
@@ -693,7 +767,7 @@ class Editor {
         if (e.ctrlKey && e.code === 'KeyY') this.redo();
         if (e.code === 'Delete' || e.code === 'Backspace') this.deleteSelected();
         
-        // Select All
+        
         if (e.ctrlKey && e.code === 'KeyA') {
             e.preventDefault();
             const all = [];
@@ -703,7 +777,7 @@ class Editor {
             this.ui.updateProperties(true);
         }
 
-        // Viewport Presets
+        
         if (['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(e.code)) {
             this.view3D.setPreset(e.code.replace('Digit', ''));
         }
@@ -857,6 +931,12 @@ class UIManager {
                 document.querySelectorAll('#mode-selector button').forEach(b => b.classList.remove('active'));
                 ev.target.classList.add('active');
                 e.state.mode = ev.target.dataset.mode;
+                
+                if (e.state.mode === 'player') {
+                    e.state.selection = [e.objects.data.player];
+                    e.ui.updateProperties(true);
+                }
+                
                 e.updateStats();
             }
         });
@@ -923,7 +1003,8 @@ class UIManager {
             'color', 'c', 'tx', 'x1', 'z1', 'x2', 'z2', 'y1', 'y2', 'xr', 'yr',
             'id', 'enemy-x', 'enemy-z',
             'ammo', 'mag-x', 'mag-z',
-            'health', 'med-x', 'med-z'
+            'health', 'med-x', 'med-z',
+            'player-id', 'player-x', 'player-z', 'player-y1', 'player-y2'
         ];
 
         const txSelect = document.getElementById('prop-tx-select');
@@ -954,7 +1035,7 @@ class UIManager {
                 else if (id === 'c') s._c = val;
                 else if (id === 'tx') {
                     s._tx = val;
-                    // Sync select if exists
+                    
                     if (this.textures.includes(val)) {
                         txSelect.value = val;
                         txInput.style.display = 'none';
@@ -965,7 +1046,9 @@ class UIManager {
                 }
                 else if (id.includes('-x')) s.x = val;
                 else if (id.includes('-z')) s.z = val;
-                else if (id === 'id') s.id = val;
+                else if (id.includes('-y1')) s.y1 = val;
+                else if (id.includes('-y2')) s.y2 = val;
+                else if (id === 'id' || id === 'player-id') s.id = val;
                 else if (id === 'ammo') s.ammo = val;
                 else if (id === 'health') s.health = val;
                 else s[id] = val;
@@ -1023,6 +1106,12 @@ class UIManager {
                 txSelect.value = 'custom';
                 txInput.style.display = 'block';
             }
+        } else if (s._type === 'player') {
+            document.getElementById('prop-player-id').value = s.id;
+            document.getElementById('prop-player-x').value = s.x;
+            document.getElementById('prop-player-z').value = s.z;
+            document.getElementById('prop-player-y1').value = s.y1;
+            document.getElementById('prop-player-y2').value = s.y2;
         } else if (s._type === 'enemy') {
             document.getElementById('prop-id').value = s.id;
             document.getElementById('prop-enemy-x').value = s.x;
