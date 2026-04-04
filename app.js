@@ -500,9 +500,11 @@ class View3D {
             this.drawLine(startX, 0, z, endX, 0, z, '#222', centerX, centerZ);
         }
 
-        // Draw Player (Mandatory)
+        // Draw Player in 3D ONLY if selected
         const p = objectManager.data.player;
-        this.drawEllipsoid(p.x, p.z, p._color, 0.6, centerX, centerZ, p.y1, p.y2);
+        if (selection.includes(p)) {
+            this.drawEllipsoid(p.x, p.z, p._color, 0.6, centerX, centerZ, p.y1, p.y2);
+        }
 
         selection.forEach(selected => {
             const color = selected._color;
