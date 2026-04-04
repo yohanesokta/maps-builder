@@ -528,7 +528,8 @@ class Editor {
             rectStart: null,
             mousePos: { x: 0, y: 0 },
             lastMouse: { x: 0, y: 0 },
-            keys: {}
+            keys: {},
+            counters: { wall: 0, enemy: 0, magazine: 0, medkit: 0 }
         };
 
         this.history = [];
@@ -652,6 +653,7 @@ class Editor {
             const end = { x: Precision.round(world.x, this.state.gridSize), z: Precision.round(world.z, this.state.gridSize) };
             
             if (Math.abs(end.x - this.state.drawStart.x) > 0.01 && Math.abs(end.z - this.state.drawStart.z) > 0.01) {
+                const wallCount = ++this.state.counters.wall;
                 const wall = this.objects.add('wall', {
                     x1: Math.min(this.state.drawStart.x, end.x),
                     z1: Math.min(this.state.drawStart.z, end.z),
@@ -659,7 +661,7 @@ class Editor {
                     z2: Math.max(this.state.drawStart.z, end.z),
                     y1: this.state.defaultY1, 
                     y2: this.state.defaultY2, 
-                    xr: 1, yr: 1, _tx: 'default', _c: 'wall'
+                    xr: 1, yr: 1, _tx: 'default', _c: 'wall_' + wallCount
                 });
                 this.state.selection = [wall];
                 this.saveHistory();
@@ -713,9 +715,9 @@ class Editor {
 
     placeObject(mode, pos) {
         let props = { x: pos.x, z: pos.z, y1: this.state.defaultY1, y2: this.state.defaultY2 };
-        if (mode === 'enemy') props = { ...props, id: 'guard_1' };
-        if (mode === 'magazine') props = { ...props, ammo: 30 };
-        if (mode === 'medkit') props = { ...props, health: 50 };
+        if (mode === 'enemy') props = { ...props, id: 'enemy_' + (++this.state.counters.enemy) };
+        if (mode === 'magazine') props = { ...props, id: 'mag_' + (++this.state.counters.magazine), ammo: 30 };
+        if (mode === 'medkit') props = { ...props, id: 'med_' + (++this.state.counters.medkit), health: 50 };
         
         const obj = this.objects.add(mode, props);
         this.state.selection = [obj];
@@ -761,6 +763,7 @@ class Editor {
         if (this.historyPointer > 0) {
             this.historyPointer--;
             this.objects.deserialize(JSON.parse(this.history[this.historyPointer]));
+            this.syncCounters();
             this.state.selection = [];
             this.ui.updateProperties(true);
         }
@@ -770,6 +773,7 @@ class Editor {
         if (this.historyPointer < this.history.length - 1) {
             this.historyPointer++;
             this.objects.deserialize(JSON.parse(this.history[this.historyPointer]));
+            this.syncCounters();
             this.state.selection = [];
             this.ui.updateProperties(true);
         }
@@ -781,6 +785,24 @@ class Editor {
         document.getElementById('stat-coords').innerText = `${w.x.toFixed(2)}, ${w.z.toFixed(2)}`;
         document.getElementById('stat-zoom').innerText = `${Math.round(this.camera.zoom * 5)}%`;
         document.getElementById('stat-grid').innerText = this.state.gridSize;
+    }
+
+    syncCounters() {
+        const data = this.objects.data;
+        const types = { wall: 'walls', enemy: 'enemies', magazine: 'magazines', medkit: 'medkits' };
+        
+        for (const [type, key] of Object.entries(types)) {
+            let max = 0;
+            data[key].forEach(o => {
+                const label = type === 'wall' ? o._c : o.id;
+                if (label && typeof label === 'string' && label.includes('_')) {
+                    const parts = label.split('_');
+                    const num = parseInt(parts[parts.length - 1]);
+                    if (!isNaN(num)) max = Math.max(max, num);
+                }
+            });
+            this.state.counters[type] = max;
+        }
     }
 
     loop() {
@@ -803,7 +825,28 @@ class Editor {
 class UIManager {
     constructor(editor) {
         this.editor = editor;
+        this.textures = [];
         this.init();
+        this.loadTextures();
+    }
+
+    async loadTextures() {
+        try {
+            const response = await fetch('loader.json');
+            const data = await response.json();
+            if (data && data.load) {
+                this.textures = data.load.map(t => t.name);
+                const select = document.getElementById('prop-tx-select');
+                this.textures.forEach(name => {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name;
+                    select.appendChild(opt);
+                });
+            }
+        } catch (err) {
+            console.warn('Failed to load loader.json, using manual texture input only.');
+        }
     }
 
     init() {
@@ -863,6 +906,7 @@ class UIManager {
                 try {
                     const data = JSON.parse(re.target.result);
                     e.objects.deserialize(data);
+                    e.syncCounters();
                     e.saveHistory();
                     this.updateProperties();
                 } catch(err) { alert('Invalid Map File'); }
@@ -882,6 +926,22 @@ class UIManager {
             'health', 'med-x', 'med-z'
         ];
 
+        const txSelect = document.getElementById('prop-tx-select');
+        const txInput = document.getElementById('prop-tx');
+
+        txSelect.addEventListener('change', () => {
+            if (e.state.selection.length !== 1) return;
+            const s = e.state.selection[0];
+            if (txSelect.value !== 'custom') {
+                s._tx = txSelect.value;
+                txInput.value = s._tx;
+                txInput.style.display = 'none';
+                e.saveHistory();
+            } else {
+                txInput.style.display = 'block';
+            }
+        });
+
         inputs.forEach(id => {
             const el = document.getElementById('prop-' + id);
             el.addEventListener('change', () => {
@@ -892,7 +952,17 @@ class UIManager {
                 
                 if (id === 'color') s._color = val;
                 else if (id === 'c') s._c = val;
-                else if (id === 'tx') s._tx = val;
+                else if (id === 'tx') {
+                    s._tx = val;
+                    // Sync select if exists
+                    if (this.textures.includes(val)) {
+                        txSelect.value = val;
+                        txInput.style.display = 'none';
+                    } else {
+                        txSelect.value = 'custom';
+                        txInput.style.display = 'block';
+                    }
+                }
                 else if (id.includes('-x')) s.x = val;
                 else if (id.includes('-z')) s.z = val;
                 else if (id === 'id') s.id = val;
@@ -940,8 +1010,19 @@ class UIManager {
             document.getElementById('prop-y2').value = s.y2;
             document.getElementById('prop-xr').value = s.xr;
             document.getElementById('prop-yr').value = s.yr;
-            document.getElementById('prop-tx').value = s._tx;
             document.getElementById('prop-c').value = s._c;
+
+            const txSelect = document.getElementById('prop-tx-select');
+            const txInput = document.getElementById('prop-tx');
+            txInput.value = s._tx || '';
+            
+            if (this.textures.includes(s._tx)) {
+                txSelect.value = s._tx;
+                txInput.style.display = 'none';
+            } else {
+                txSelect.value = 'custom';
+                txInput.style.display = 'block';
+            }
         } else if (s._type === 'enemy') {
             document.getElementById('prop-id').value = s.id;
             document.getElementById('prop-enemy-x').value = s.x;
