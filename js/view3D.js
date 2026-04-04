@@ -139,6 +139,8 @@ export class View3D {
             this.drawEllipsoid(p.x, p.z, p._color, 0.6, centerX, centerZ, p.y1, p.y2);
         }
 
+        // Only draw objects in selection or potentially draw all but highlighting selection
+        // For simplicity and performance, we draw selection in 3D.
         selection.forEach(selected => {
             const color = selected._color;
             if (selected._type === 'wall') {

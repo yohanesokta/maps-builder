@@ -29,6 +29,34 @@ export class UIManager {
     init() {
         const e = this.editor;
         
+        // Tab switching
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+            });
+        });
+
+        // Layer reordering
+        document.getElementById('layer-up').onclick = () => {
+            if (e.state.selection.length === 1) {
+                if (e.objects.moveUp(e.state.selection[0])) {
+                    e.saveHistory();
+                    this.updateProperties();
+                }
+            }
+        };
+        document.getElementById('layer-down').onclick = () => {
+            if (e.state.selection.length === 1) {
+                if (e.objects.moveDown(e.state.selection[0])) {
+                    e.saveHistory();
+                    this.updateProperties();
+                }
+            }
+        };
+
         document.getElementById('mode-selector').addEventListener('click', (ev) => {
             if (ev.target.dataset.mode) {
                 document.querySelectorAll('#mode-selector button').forEach(b => b.classList.remove('active'));
@@ -124,6 +152,7 @@ export class UIManager {
                 txInput.value = s._tx;
                 txInput.style.display = 'none';
                 e.saveHistory();
+                this.updateLayerList();
             } else {
                 txInput.style.display = 'block';
             }
@@ -156,6 +185,7 @@ export class UIManager {
                 else if (id === 'health') s.health = val;
                 else s[id] = val;
                 e.saveHistory();
+                this.updateLayerList();
             });
         });
     }
@@ -165,6 +195,8 @@ export class UIManager {
         const selection = this.editor.state.selection;
         const panel = document.getElementById('object-properties');
         const empty = document.getElementById('no-selection');
+
+        this.updateLayerList();
 
         if (selection.length !== 1) {
             panel.style.display = 'none';
@@ -182,7 +214,9 @@ export class UIManager {
         empty.style.display = 'none';
         document.getElementById('prop-title').innerText = s._type.toUpperCase() + ' PROPERTIES';
         document.querySelectorAll('.type-props').forEach(p => p.style.display = 'none');
-        document.getElementById('props-' + s._type).style.display = 'block';
+        const propsEl = document.getElementById('props-' + s._type);
+        if (propsEl) propsEl.style.display = 'block';
+        
         document.getElementById('prop-color').value = s._color;
         if (s._type === 'wall') {
             document.getElementById('prop-x1').value = s.x1;
@@ -223,5 +257,53 @@ export class UIManager {
             document.getElementById('prop-med-x').value = s.x;
             document.getElementById('prop-med-z').value = s.z;
         }
+    }
+
+    updateLayerList() {
+        const e = this.editor;
+        const listEl = document.getElementById('layer-list');
+        listEl.innerHTML = '';
+
+        // Player is special, always on top or bottom? Let's add it to the list too.
+        const allObjects = [e.objects.data.player, ...e.objects.data.objects];
+        
+        // Reverse to show top-most first in UI
+        [...allObjects].reverse().forEach(obj => {
+            const item = document.createElement('div');
+            item.className = 'layer-item';
+            if (e.state.selection.includes(obj)) item.classList.add('selected');
+
+            const color = document.createElement('div');
+            color.className = 'color-preview';
+            color.style.backgroundColor = obj._color;
+
+            const name = document.createElement('div');
+            name.className = 'name';
+            name.textContent = (obj._type === 'wall' ? obj._c : obj.id) || obj._type;
+
+            const type = document.createElement('div');
+            type.className = 'type';
+            type.textContent = obj._type;
+
+            item.appendChild(color);
+            item.appendChild(name);
+            item.appendChild(type);
+
+            item.onclick = (ev) => {
+                const isShift = ev.shiftKey;
+                if (isShift) {
+                    if (e.state.selection.includes(obj)) {
+                        e.state.selection = e.state.selection.filter(o => o !== obj);
+                    } else {
+                        e.state.selection.push(obj);
+                    }
+                } else {
+                    e.state.selection = [obj];
+                }
+                this.updateProperties();
+            };
+
+            listEl.appendChild(item);
+        });
     }
 }

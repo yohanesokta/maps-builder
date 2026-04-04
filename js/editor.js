@@ -165,18 +165,14 @@ export class Editor {
             const y2 = Math.max(this.state.rectStart.y, e.clientY);
             const w1 = this.camera.screenToWorld(x1, y1, this.canvas.width, this.canvas.height);
             const w2 = this.camera.screenToWorld(x2, y2, this.canvas.width, this.canvas.height);
-            const sel = [];
-            const data = this.objects.data;
-            ['walls', 'enemies', 'magazines', 'medkits'].forEach(type => {
-                data[type].forEach(o => {
-                    if (type === 'walls') {
-                        if (o.x1 >= w1.x && o.x2 <= w2.x && o.z1 >= w1.z && o.z2 <= w2.z) sel.push(o);
-                    } else {
-                        if (o.x >= w1.x && o.x <= w2.x && o.z >= w1.z && o.z <= w2.z) sel.push(o);
-                    }
-                });
+            
+            this.state.selection = this.objects.data.objects.filter(o => {
+                if (o._type === 'wall') {
+                    return o.x1 >= w1.x && o.x2 <= w2.x && o.z1 >= w1.z && o.z2 <= w2.z;
+                } else {
+                    return o.x >= w1.x && o.x <= w2.x && o.z >= w1.z && o.z <= w2.z;
+                }
             });
-            this.state.selection = sel;
             this.ui.updateProperties(true);
         }
         if (this.state.isDrawing && this.state.drawStart) {
@@ -191,7 +187,7 @@ export class Editor {
                     z2: Math.max(this.state.drawStart.z, end.z),
                     y1: this.state.defaultY1, 
                     y2: this.state.defaultY2, 
-                    xr: 1, yr: 1, _tx: 'default', _c: 'wall_' + wallCount
+                    xr: 1, yr: 1, _tx: 'walldefault', _c: 'wall_' + wallCount
                 });
                 this.state.selection = [wall];
                 this.saveHistory();
@@ -223,10 +219,7 @@ export class Editor {
         if (e.code === 'Delete' || e.code === 'Backspace') this.deleteSelected();
         if (e.ctrlKey && e.code === 'KeyA') {
             e.preventDefault();
-            const all = [];
-            const data = this.objects.data;
-            ['walls', 'enemies', 'magazines', 'medkits'].forEach(t => all.push(...data[t]));
-            this.state.selection = all;
+            this.state.selection = [...this.objects.data.objects];
             this.ui.updateProperties(true);
         }
         if (['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(e.code)) {
@@ -271,7 +264,7 @@ export class Editor {
     }
 
     saveHistory() {
-        const snapshot = JSON.stringify(this.objects.data);
+        const snapshot = JSON.stringify(this.objects.serialize());
         if (this.historyPointer < this.history.length - 1) {
             this.history = this.history.slice(0, this.historyPointer + 1);
         }
@@ -313,10 +306,10 @@ export class Editor {
 
     syncCounters() {
         const data = this.objects.data;
-        const types = { wall: 'walls', enemy: 'enemies', magazine: 'magazines', medkit: 'medkits' };
-        for (const [type, key] of Object.entries(types)) {
+        const types = ['wall', 'enemy', 'magazine', 'medkit'];
+        types.forEach(type => {
             let max = 0;
-            data[key].forEach(o => {
+            data.objects.filter(o => o._type === type).forEach(o => {
                 const label = type === 'wall' ? o._c : o.id;
                 if (label && typeof label === 'string' && label.includes('_')) {
                     const parts = label.split('_');
@@ -325,7 +318,7 @@ export class Editor {
                 }
             });
             this.state.counters[type] = max;
-        }
+        });
     }
 
     loop() {

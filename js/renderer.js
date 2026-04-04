@@ -14,14 +14,22 @@ export class Renderer {
 
         this.drawGrid(state.gridSize);
 
-        const data = objectManager.data;
         const selection = state.selection;
 
-        this.drawPlayer(data.player, selection.includes(data.player));
-        data.walls.forEach(w => this.drawWall(w, selection.includes(w)));
-        data.enemies.forEach(e => this.drawEnemy(e, selection.includes(e)));
-        data.magazines.forEach(m => this.drawMagazine(m, selection.includes(m)));
-        data.medkits.forEach(k => this.drawMedkit(k, selection.includes(k)));
+        // Player is always drawn first (or could be part of objects)
+        const p = objectManager.data.player;
+        this.drawPlayer(p, selection.includes(p));
+
+        // Draw objects in order (lower index = bottom, higher index = top)
+        objectManager.data.objects.forEach(obj => {
+            const isSelected = selection.includes(obj);
+            switch(obj._type) {
+                case 'wall': this.drawWall(obj, isSelected); break;
+                case 'enemy': this.drawEnemy(obj, isSelected); break;
+                case 'magazine': this.drawMagazine(obj, isSelected); break;
+                case 'medkit': this.drawMedkit(obj, isSelected); break;
+            }
+        });
 
         this.drawPreview(state);
         this.drawSelectionBox(state);
