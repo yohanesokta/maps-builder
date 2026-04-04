@@ -26,13 +26,15 @@ export class ObjectManager {
             _color: ColorUtils.random(), 
             ...props 
         };
-        this.data[type + 's'].push(obj);
+        const key = type === 'enemy' ? 'enemies' : type + 's';
+        this.data[key].push(obj);
         return obj;
     }
 
     remove(obj) {
         if (obj._type === 'player') return;
-        const collection = this.data[obj._type + 's'];
+        const key = obj._type === 'enemy' ? 'enemies' : obj._type + 's';
+        const collection = this.data[key];
         const idx = collection.indexOf(obj);
         if (idx !== -1) collection.splice(idx, 1);
     }
@@ -72,7 +74,7 @@ export class ObjectManager {
             if (key === 'player') {
                 this.data.player = { ...this.data.player, ...json[key] };
             } else if (this.data[key]) {
-                const type = key.slice(0, -1);
+                const type = key === 'enemies' ? 'enemy' : key.slice(0, -1);
                 this.data[key] = json[key].map(o => ({ ...o, _type: type }));
             }
         }
