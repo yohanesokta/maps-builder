@@ -72,7 +72,31 @@ export class ObjectManager {
     }
 
     serialize() {
-        return JSON.parse(JSON.stringify(this.data));
+        const result = {
+            player: { ...this.data.player },
+            walls: [],
+            enemies: [],
+            magazines: [],
+            medkits: []
+        };
+
+        this.data.objects.forEach(o => {
+            const { _type, ...props } = o;
+            if (o._type === 'wall') {
+                result.walls.push({ ...props });
+            } else if (o._type === 'enemy') {
+                const { y1, y2, ...enemyProps } = props;
+                result.enemies.push({ ...enemyProps });
+            } else if (o._type === 'magazine') {
+                const { y1, y2, id, ...magProps } = props;
+                result.magazines.push({ ...magProps });
+            } else if (o._type === 'medkit') {
+                const { y1, y2, id, ...medProps } = props;
+                result.medkits.push({ ...medProps });
+            }
+        });
+
+        return result;
     }
 
     deserialize(json) {
@@ -82,9 +106,12 @@ export class ObjectManager {
         }
         
         if (json.objects) {
-            this.data.objects = json.objects;
+            this.data.objects = json.objects.map(o => ({
+                ...o,
+                _color: o._color || ColorUtils.random()
+            }));
         } else {
-            // Backward compatibility for old format
+            // New format (walls, enemies, magazines, medkits)
             const collections = {
                 walls: 'wall',
                 enemies: 'enemy',
@@ -94,7 +121,17 @@ export class ObjectManager {
             for (const [key, type] of Object.entries(collections)) {
                 if (json[key]) {
                     json[key].forEach(o => {
-                        this.data.objects.push({ ...o, _type: type });
+                        const obj = { 
+                            ...o, 
+                            _type: type,
+                            _color: o._color || ColorUtils.random()
+                        };
+                        // Ensure required properties for internal use
+                        if (type !== 'wall') {
+                            if (obj.y1 === undefined) obj.y1 = this.data.player.y1;
+                            if (obj.y2 === undefined) obj.y2 = this.data.player.y2;
+                        }
+                        this.data.objects.push(obj);
                     });
                 }
             }
