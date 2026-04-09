@@ -233,7 +233,7 @@ export class Editor {
 
     placeObject(mode, pos) {
         let props = { x: pos.x, z: pos.z, y1: this.state.defaultY1, y2: this.state.defaultY2 };
-        if (mode === 'enemy') props = { ...props, id: 'enemy_' + (++this.state.counters.enemy) };
+        if (mode === 'enemy') props = { ...props, id: this.state.counters.enemy++ };
         if (mode === 'magazine') props = { ...props, id: 'mag_' + (++this.state.counters.magazine), ammo: 30 };
         if (mode === 'medkit') props = { ...props, id: 'med_' + (++this.state.counters.medkit), health: 50 };
         const obj = this.objects.add(mode, props);
@@ -311,10 +311,17 @@ export class Editor {
             let max = 0;
             data.objects.filter(o => o._type === type).forEach(o => {
                 const label = type === 'wall' ? o._c : o.id;
-                if (label && typeof label === 'string' && label.includes('_')) {
-                    const parts = label.split('_');
-                    const num = parseInt(parts[parts.length - 1]);
-                    if (!isNaN(num)) max = Math.max(max, num);
+                if (typeof label === 'number') {
+                    max = Math.max(max, label + 1);
+                } else if (typeof label === 'string') {
+                    if (label.includes('_')) {
+                        const parts = label.split('_');
+                        const num = parseInt(parts[parts.length - 1]);
+                        if (!isNaN(num)) max = Math.max(max, num);
+                    } else {
+                        const num = parseInt(label);
+                        if (!isNaN(num)) max = Math.max(max, num + 1);
+                    }
                 }
             });
             this.state.counters[type] = max;
